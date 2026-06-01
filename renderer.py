@@ -356,7 +356,7 @@ def write_digest_files(
     papers: list[Paper],
     target_date: date,
     deep_read_top_k: int = DEEP_READ_COUNT,
-) -> tuple[Path, Path, Path]:
+) -> tuple[Path, Path, Path, DigestAnalysis]:
     OUTPUTS_DIR.mkdir(exist_ok=True)
     DOCS_DIR.mkdir(exist_ok=True)
     markdown_path = OUTPUTS_DIR / f"{target_date.isoformat()}.md"
@@ -369,4 +369,4 @@ def write_digest_files(
     html = render_html(title, papers, target_date, analysis, deep_read_top_k)
     html_path.write_text(html, encoding="utf-8")
     index_path.write_text(html, encoding="utf-8")
-    return markdown_path, html_path, index_path
+    return markdown_path, html_path, index_path, analysis

@@ -8,6 +8,7 @@ import yaml
 
 from arxiv_client import fetch_recent_papers
 from classifier import classify_paper
+from mailer import send_digest_email
 from paper_model import Paper
 from renderer import write_digest_files
 from scorer import score_paper
@@ -24,6 +25,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="抓取并打印近期语音、音乐、音频相关 arXiv 论文")
     parser.add_argument("--dry-run", action="store_true", help="仅打印论文，不更新 seen_papers.json")
     parser.add_argument("--no-email", action="store_true", help="生成 Markdown 和 HTML，不发送邮件")
+    parser.add_argument("--send-email", action="store_true", help="生成 Markdown 和 HTML，并发送邮件提醒")
     parser.add_argument("--ignore-seen", action="store_true", help="忽略 seen_papers.json，重新处理已见论文")
     parser.add_argument("--date", type=date.fromisoformat, help="指定查询截止日期，格式为 YYYY-MM-DD")
     return parser.parse_args()
@@ -113,14 +115,16 @@ def main() -> None:
         ][: config["top_k"]]
     print_digest(config["digest_title"], selected_papers, target_date, args.dry_run)
 
-    if args.no_email:
-        markdown_path, html_path, index_path = write_digest_files(
+    if args.no_email or args.send_email:
+        markdown_path, html_path, index_path, analysis = write_digest_files(
             config["digest_title"], page_papers, target_date, config.get("deep_read_top_k", 5)
         )
         print("\n已生成文件：")
         print(f"- {markdown_path.relative_to(BASE_DIR)}")
         print(f"- {html_path.relative_to(BASE_DIR)}")
         print(f"- {index_path.relative_to(BASE_DIR)}")
+        if args.send_email:
+            send_digest_email(config["digest_title"], target_date, page_papers, analysis)
 
     if not args.dry_run:
         seen_papers.update(paper.arxiv_id for paper in papers)
