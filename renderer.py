@@ -4,6 +4,7 @@ from html import escape
 from pathlib import Path
 
 from paper_model import Paper
+from summarizer import DigestAnalysis, analyze_digest
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -64,28 +65,27 @@ def _why_read(paper: Paper) -> str:
     return f"聚焦 {keyword}，在 {paper.direction} 方向具有较高相关度。"
 
 
-def _paper_insights(paper: Paper) -> dict[str, str]:
-    keywords = "、".join(paper.matched_keywords[:4]) or paper.direction
-    return {
-        "summary": _short_text(paper.summary, 170),
-        "method": f"围绕 {keywords} 展开方法设计，重点解决 {paper.direction} 场景中的建模与应用问题。",
-        "highlight": f"相关性评分为 {paper.relevance_score}，关键词覆盖 {keywords}，适合作为今日方向动态的代表论文。",
-        "limitation": "当前速递基于摘要进行规则提炼，实验设置、数据规模和边界条件仍需阅读全文确认。",
-        "audience": f"适合关注 {paper.direction}、音频建模和最新研究趋势的读者。",
-        "advice": "先阅读摘要与方法图，再结合实验章节判断是否需要精读全文。",
-    }
-
-
-def render_markdown(title: str, papers: list[Paper], target_date: date) -> str:
+def render_markdown(
+    title: str,
+    papers: list[Paper],
+    target_date: date,
+    analysis: DigestAnalysis | None = None,
+    deep_read_top_k: int = DEEP_READ_COUNT,
+) -> str:
+    analysis = analysis or analyze_digest(papers, deep_read_top_k)
     trend_keywords = "、".join(_trend_keywords(papers)) or "暂无"
     lines = [
         f"# {title}",
         "",
         f"日期：{target_date.isoformat()}",
+        f"分析来源：{analysis.source}",
         "",
         "## 今日 3 分钟速览",
         "",
-        _overview(papers),
+        f"- 今日主线：{analysis.overview['main_line']}",
+        f"- 今日值得关注：{analysis.overview['worth_attention']}",
+        f"- 今日方法趋势：{analysis.overview['method_trend']}",
+        f"- 今日避坑提醒：{analysis.overview['risk_note']}",
         "",
         "## 统计",
         "",
@@ -107,7 +107,8 @@ def render_markdown(title: str, papers: list[Paper], target_date: date) -> str:
         lines.append("暂无论文。")
 
     lines.extend(["", "## 论文精读卡片 TOP 5", ""])
-    for index, paper in enumerate(papers[:DEEP_READ_COUNT], start=1):
+    for index, paper in enumerate(papers[:deep_read_top_k], start=1):
+        insights = analysis.paper_insights[paper.arxiv_id]
         lines.extend(
             [
                 f"### TOP{index} {paper.title}",
@@ -117,7 +118,16 @@ def render_markdown(title: str, papers: list[Paper], target_date: date) -> str:
                 f"- 相关性评分：{paper.relevance_score}",
                 f"- 链接：{_paper_url(paper)}",
                 "",
-                paper.summary,
+                f"- 一句话总结：{insights['one_sentence_summary']}",
+                f"- 解决了什么问题：{insights['problem']}",
+                f"- 核心方法：{insights['core_method']}",
+                f"- 主要创新点：{insights['innovations']}",
+                f"- 实验结论：{insights['experiment_conclusion']}",
+                f"- 可能局限：{insights['limitations']}",
+                f"- 适合谁读：{insights['audience']}",
+                f"- 和已有工作的关系：{insights['related_work']}",
+                f"- 对研究的启发：{insights['research_inspiration']}",
+                f"- 是否值得精读：{insights['worth_deep_reading']}",
                 "",
             ]
         )
@@ -130,12 +140,12 @@ def render_markdown(title: str, papers: list[Paper], target_date: date) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _render_stats(papers: list[Paper]) -> str:
+def _render_stats(papers: list[Paper], deep_read_top_k: int) -> str:
     trend_keywords = "、".join(escape(keyword) for keyword in _trend_keywords(papers)) or "暂无"
     stats = [
         ("&#128202;", "共分析", str(len(papers)), "篇近期相关论文"),
         ("&#128293;", "最热门方向", escape(_hot_direction(papers)), "今日研究主线"),
-        ("&#128214;", "推荐精读", str(min(DEEP_READ_COUNT, len(papers))), "篇优先阅读"),
+        ("&#128214;", "推荐精读", str(min(deep_read_top_k, len(papers))), "篇优先阅读"),
         ("&#128273;", "今日关键词", trend_keywords, "高频趋势线索"),
     ]
     return "".join(
@@ -184,22 +194,24 @@ def _render_top_reads(papers: list[Paper]) -> str:
     )
 
 
-def _render_deep_nav(papers: list[Paper]) -> str:
+def _render_deep_nav(papers: list[Paper], deep_read_top_k: int) -> str:
     if not papers:
         return "<p>暂无精读卡片。</p>"
     return "".join(
         f'<a href="#top{index}">[TOP{index}]</a>'
-        for index, _ in enumerate(papers[:DEEP_READ_COUNT], start=1)
+        for index, _ in enumerate(papers[:deep_read_top_k], start=1)
     )
 
 
-def _render_deep_cards(papers: list[Paper]) -> str:
+def _render_deep_cards(papers: list[Paper], analysis: DigestAnalysis, deep_read_top_k: int) -> str:
     if not papers:
         return "<p>暂无精读卡片。</p>"
     cards = []
-    for index, paper in enumerate(papers[:DEEP_READ_COUNT], start=1):
+    for index, paper in enumerate(papers[:deep_read_top_k], start=1):
         authors = escape(", ".join(paper.authors))
-        insights = {key: escape(value) for key, value in _paper_insights(paper).items()}
+        insights = {
+            key: escape(value) for key, value in analysis.paper_insights[paper.arxiv_id].items()
+        }
         keywords = "".join(
             f'<span class="keyword-tag">{escape(keyword)}</span>' for keyword in paper.matched_keywords[:6]
         )
@@ -214,13 +226,17 @@ def _render_deep_cards(papers: list[Paper]) -> str:
             f'<a class="paper-link" href="{escape(_paper_url(paper), quote=True)}" target="_blank" rel="noopener noreferrer">'
             "查看 arXiv &#8599;</a></div>"
             '<div class="paper-detail-grid"><div>'
-            f'<div class="insight"><h4>一句话总结</h4><p>{insights["summary"]}</p></div>'
-            f'<div class="insight"><h4>核心方法</h4><p>{insights["method"]}</p></div>'
-            f'<div class="insight"><h4>主要亮点</h4><p>{insights["highlight"]}</p></div>'
+            f'<div class="insight"><h4>一句话总结</h4><p>{insights["one_sentence_summary"]}</p></div>'
+            f'<div class="insight"><h4>解决了什么问题</h4><p>{insights["problem"]}</p></div>'
+            f'<div class="insight"><h4>核心方法</h4><p>{insights["core_method"]}</p></div>'
+            f'<div class="insight"><h4>主要创新点</h4><p>{insights["innovations"]}</p></div>'
+            f'<div class="insight"><h4>实验结论</h4><p>{insights["experiment_conclusion"]}</p></div>'
             '</div><div class="detail-side">'
-            f'<div class="insight"><h4>可能局限</h4><p>{insights["limitation"]}</p></div>'
-            f'<div class="insight"><h4>适合谁看</h4><p>{insights["audience"]}</p></div>'
-            f'<div class="insight"><h4>阅读建议</h4><p>{insights["advice"]}</p></div>'
+            f'<div class="insight"><h4>可能局限</h4><p>{insights["limitations"]}</p></div>'
+            f'<div class="insight"><h4>适合谁读</h4><p>{insights["audience"]}</p></div>'
+            f'<div class="insight"><h4>和已有工作的关系</h4><p>{insights["related_work"]}</p></div>'
+            f'<div class="insight"><h4>对研究的启发</h4><p>{insights["research_inspiration"]}</p></div>'
+            f'<div class="insight"><h4>是否值得精读</h4><p>{insights["worth_deep_reading"]}</p></div>'
             "</div></div>"
             "</article>"
         )
@@ -251,25 +267,29 @@ def _render_raw_papers(papers: list[Paper]) -> str:
     return f'<div class="raw-list">{"".join(items)}</div>'
 
 
-def _render_overview_modules(papers: list[Paper]) -> str:
+def _render_overview_modules(papers: list[Paper], analysis: DigestAnalysis) -> str:
     if not papers:
         return "<p>今天暂未检索到符合筛选条件的新论文。</p>"
-    hot = escape(_hot_direction(papers))
-    keywords = "、".join(escape(keyword) for keyword in _trend_keywords(papers, 4)) or "暂无"
-    top_title = escape(papers[0].title)
     modules = [
-        ("blue", "&#9679;", "今日主线", f"{hot} 是今天最集中的方向，共筛选出 {len(papers)} 篇值得关注的论文。"),
-        ("green", "&#9679;", "今日值得关注", f"优先阅读《{top_title}》，它在今日列表中的相关性评分最高。"),
-        ("purple", "&#9679;", "今日方法趋势", f"高频线索包括 {keywords}，可重点观察统一音频建模与生成能力。"),
-        ("orange", "&#9679;", "今日避坑提醒", "本页总结由摘要和规则模板生成，关键结论仍需结合论文实验部分核验。"),
+        ("blue", "&#9679;", "今日主线", analysis.overview["main_line"]),
+        ("green", "&#9679;", "今日值得关注", analysis.overview["worth_attention"]),
+        ("purple", "&#9679;", "今日方法趋势", analysis.overview["method_trend"]),
+        ("orange", "&#9679;", "今日避坑提醒", analysis.overview["risk_note"]),
     ]
     return "".join(
-        f'<article class="overview-item {color}"><span>{icon}</span><div><h3>{heading}</h3><p>{body}</p></div></article>'
+        f'<article class="overview-item {color}"><span>{icon}</span><div><h3>{heading}</h3><p>{escape(body)}</p></div></article>'
         for color, icon, heading, body in modules
     )
 
 
-def render_html(title: str, papers: list[Paper], target_date: date) -> str:
+def render_html(
+    title: str,
+    papers: list[Paper],
+    target_date: date,
+    analysis: DigestAnalysis | None = None,
+    deep_read_top_k: int = DEEP_READ_COUNT,
+) -> str:
+    analysis = analysis or analyze_digest(papers, deep_read_top_k)
     safe_title = escape(title)
     safe_date = escape(target_date.isoformat())
     return f"""<!DOCTYPE html>
@@ -295,10 +315,10 @@ def render_html(title: str, papers: list[Paper], target_date: date) -> str:
     </div>
   </header>
   <main class="container">
-    <section class="stats">{_render_stats(papers)}</section>
+    <section class="stats">{_render_stats(papers, deep_read_top_k)}</section>
     <section class="section-card overview-section">
       <div class="section-heading"><span>01</span><div><h2>今日 3 分钟速览</h2><p>快速把握今日研究信号</p></div></div>
-      <div class="overview-grid">{_render_overview_modules(papers)}</div>
+      <div class="overview-grid">{_render_overview_modules(papers, analysis)}</div>
     </section>
     <section class="section-card">
       <div class="section-heading"><span>02</span><div><h2>热门方向分布</h2><p>按论文方向统计今日关注度</p></div></div>
@@ -310,11 +330,11 @@ def render_html(title: str, papers: list[Paper], target_date: date) -> str:
     </section>
     <section class="section-card compact-section">
       <div class="section-heading"><span>04</span><div><h2>精读卡片导航</h2><p>点击编号快速定位</p></div></div>
-      <nav class="deep-nav">{_render_deep_nav(papers)}</nav>
+      <nav class="deep-nav">{_render_deep_nav(papers, deep_read_top_k)}</nav>
     </section>
     <section class="deep-section">
-      <div class="section-heading"><span>05</span><div><h2>论文精读卡片 TOP 5</h2><p>基于摘要的规则化阅读指南</p></div></div>
-      <div class="paper-list">{_render_deep_cards(papers)}</div>
+      <div class="section-heading"><span>05</span><div><h2>论文精读卡片 TOP 5</h2><p>基于摘要的中文研究分析 · {escape(analysis.source)}</p></div></div>
+      <div class="paper-list">{_render_deep_cards(papers, analysis, deep_read_top_k)}</div>
     </section>
     <section class="section-card">
       <div class="section-heading"><span>06</span><div><h2>术语小白卡</h2><p>快速补齐今日阅读背景</p></div></div>
@@ -331,14 +351,22 @@ def render_html(title: str, papers: list[Paper], target_date: date) -> str:
 """
 
 
-def write_digest_files(title: str, papers: list[Paper], target_date: date) -> tuple[Path, Path, Path]:
+def write_digest_files(
+    title: str,
+    papers: list[Paper],
+    target_date: date,
+    deep_read_top_k: int = DEEP_READ_COUNT,
+) -> tuple[Path, Path, Path]:
     OUTPUTS_DIR.mkdir(exist_ok=True)
     DOCS_DIR.mkdir(exist_ok=True)
     markdown_path = OUTPUTS_DIR / f"{target_date.isoformat()}.md"
     html_path = DOCS_DIR / f"{target_date.isoformat()}.html"
     index_path = DOCS_DIR / "index.html"
-    markdown_path.write_text(render_markdown(title, papers, target_date), encoding="utf-8")
-    html = render_html(title, papers, target_date)
+    analysis = analyze_digest(papers, deep_read_top_k)
+    markdown_path.write_text(
+        render_markdown(title, papers, target_date, analysis, deep_read_top_k), encoding="utf-8"
+    )
+    html = render_html(title, papers, target_date, analysis, deep_read_top_k)
     html_path.write_text(html, encoding="utf-8")
     index_path.write_text(html, encoding="utf-8")
     return markdown_path, html_path, index_path

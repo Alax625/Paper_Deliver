@@ -25,3 +25,28 @@ python main.py --date 2026-06-01
 - `python main.py --date YYYY-MM-DD`：指定 3 天查询窗口的截止日期。
 
 检索类别、结果数量、关键词、时区和标题可以在 `config.yaml` 中修改。
+
+## 大模型中文分析
+
+项目支持使用 OpenAI 或 DeepSeek 为今日速览和精读卡片生成中文分析。默认只分析
+`config.yaml` 中 `deep_read_top_k` 指定的前几篇论文，默认值为 `5`。
+
+在项目根目录创建 `.env` 文件。使用 OpenAI：
+
+```dotenv
+LLM_PROVIDER=openai
+OPENAI_API_KEY=your_api_key
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+使用 DeepSeek：
+
+```dotenv
+LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=your_api_key
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+DEEPSEEK_MODEL=deepseek-chat
+```
+
+DeepSeek 通过 OpenAI SDK 兼容模式调用。未配置 API Key、API 调用失败或模型返回内容
+无法解析时，程序会自动降级为规则模板，仍然可以正常生成 Markdown 和 HTML。

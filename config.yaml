@@ -6,6 +6,7 @@ categories:
 
 max_results: 100
 top_k: 20
+deep_read_top_k: 5
 timezone: Asia/Shanghai
 digest_title: 语音 / 音乐 / 音频论文速递
 

@@ -115,7 +115,7 @@ def main() -> None:
 
     if args.no_email:
         markdown_path, html_path, index_path = write_digest_files(
-            config["digest_title"], page_papers, target_date
+            config["digest_title"], page_papers, target_date, config.get("deep_read_top_k", 5)
         )
         print("\n已生成文件：")
         print(f"- {markdown_path.relative_to(BASE_DIR)}")
