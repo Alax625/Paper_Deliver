@@ -1,0 +1,4 @@
+feedparser>=6.0,<7.0
+PyYAML>=6.0,<7.0
+requests>=2.31,<3.0
+tzdata>=2025.1

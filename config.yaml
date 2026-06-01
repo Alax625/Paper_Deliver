@@ -1,0 +1,26 @@
+categories:
+  - eess.AS
+  - cs.SD
+  - cs.CL
+  - cs.MM
+
+max_results: 100
+top_k: 20
+timezone: Asia/Shanghai
+digest_title: 语音 / 音乐 / 音频论文速递
+
+keywords:
+  - speech
+  - audio
+  - music
+  - voice
+  - acoustic
+  - singing
+  - speaker
+  - text-to-speech
+  - speech recognition
+  - speech translation
+  - speech enhancement
+  - audio generation
+  - music generation
+  - self-supervised
