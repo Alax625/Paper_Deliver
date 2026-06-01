@@ -43,13 +43,37 @@ def _overview(papers: list[Paper]) -> str:
     )
 
 
-def _terms() -> list[tuple[str, str]]:
+def _terms() -> list[tuple[str, str, str]]:
     return [
-        ("Audio-LLM", "面向音频理解或生成任务的多模态大语言模型。"),
-        ("Semantic speech tokenizer", "把语音转换为紧凑离散表示，尽量保留语义信息。"),
-        ("Neural codec", "使用神经网络压缩和重建音频的编码器与解码器。"),
-        ("ASR", "Automatic Speech Recognition，自动语音识别。"),
+        ("AI", "Audio-LLM", "面向音频理解或生成任务的多模态大语言模型。"),
+        ("TK", "Semantic speech tokenizer", "把语音转换为紧凑离散表示，尽量保留语义信息。"),
+        ("NC", "Neural codec", "使用神经网络压缩和重建音频的编码器与解码器。"),
+        ("ASR", "ASR", "Automatic Speech Recognition，自动语音识别。"),
     ]
+
+
+def _short_text(value: str, limit: int = 150) -> str:
+    text = " ".join(value.split())
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit].rstrip()}..."
+
+
+def _why_read(paper: Paper) -> str:
+    keyword = paper.matched_keywords[0] if paper.matched_keywords else paper.direction
+    return f"聚焦 {keyword}，在 {paper.direction} 方向具有较高相关度。"
+
+
+def _paper_insights(paper: Paper) -> dict[str, str]:
+    keywords = "、".join(paper.matched_keywords[:4]) or paper.direction
+    return {
+        "summary": _short_text(paper.summary, 170),
+        "method": f"围绕 {keywords} 展开方法设计，重点解决 {paper.direction} 场景中的建模与应用问题。",
+        "highlight": f"相关性评分为 {paper.relevance_score}，关键词覆盖 {keywords}，适合作为今日方向动态的代表论文。",
+        "limitation": "当前速递基于摘要进行规则提炼，实验设置、数据规模和边界条件仍需阅读全文确认。",
+        "audience": f"适合关注 {paper.direction}、音频建模和最新研究趋势的读者。",
+        "advice": "先阅读摘要与方法图，再结合实验章节判断是否需要精读全文。",
+    }
 
 
 def render_markdown(title: str, papers: list[Paper], target_date: date) -> str:
@@ -109,14 +133,15 @@ def render_markdown(title: str, papers: list[Paper], target_date: date) -> str:
 def _render_stats(papers: list[Paper]) -> str:
     trend_keywords = "、".join(escape(keyword) for keyword in _trend_keywords(papers)) or "暂无"
     stats = [
-        ("共分析论文数", str(len(papers))),
-        ("最热方向", escape(_hot_direction(papers))),
-        ("推荐精读数量", str(min(DEEP_READ_COUNT, len(papers)))),
-        ("今日趋势关键词", trend_keywords),
+        ("&#128202;", "共分析", str(len(papers)), "篇近期相关论文"),
+        ("&#128293;", "最热门方向", escape(_hot_direction(papers)), "今日研究主线"),
+        ("&#128214;", "推荐精读", str(min(DEEP_READ_COUNT, len(papers))), "篇优先阅读"),
+        ("&#128273;", "今日关键词", trend_keywords, "高频趋势线索"),
     ]
     return "".join(
-        f'<article class="stat-card"><span>{label}</span><strong>{value}</strong></article>'
-        for label, value in stats
+        f'<article class="stat-card"><span class="stat-icon">{icon}</span>'
+        f'<div><span class="stat-label">{label}</span><strong>{value}</strong><small>{note}</small></div></article>'
+        for icon, label, value, note in stats
     )
 
 
@@ -124,27 +149,39 @@ def _render_distribution(papers: list[Paper]) -> str:
     counts = _direction_counts(papers)
     if not counts:
         return "<p>暂无方向分布数据。</p>"
-    rows = "".join(
-        f"<tr><td>{escape(direction)}</td><td>{count}</td></tr>"
+    maximum = max(counts.values())
+    bars = "".join(
+        f'<div class="direction-row"><div class="direction-meta"><strong>{escape(direction)}</strong>'
+        f"<span>{count} 篇</span></div><div class=\"progress-track\">"
+        f'<span class="progress-bar" style="width: {count / maximum * 100:.0f}%"></span></div></div>'
         for direction, count in counts.most_common()
     )
-    return f"<table><thead><tr><th>方向</th><th>论文数</th></tr></thead><tbody>{rows}</tbody></table>"
+    return f'<div class="direction-bars">{bars}</div>'
 
 
 def _render_top_reads(papers: list[Paper]) -> str:
     if not papers:
         return "<p>暂无推荐论文。</p>"
-    items = []
+    rows = []
     for index, paper in enumerate(papers[:TOP_READ_COUNT], start=1):
-        items.append(
-            "<li>"
+        rank_class = f" rank-{index}" if index <= 3 else ""
+        rows.append(
+            "<tr>"
+            f'<td><span class="rank-badge{rank_class}">{index}</span></td>'
+            "<td>"
             f'<a href="{escape(_paper_url(paper), quote=True)}" target="_blank" rel="noopener noreferrer">'
             f"{escape(paper.title)}</a>"
-            f'<span class="tag">{escape(paper.direction)}</span>'
-            f'<span class="score">评分 {paper.relevance_score}</span>'
-            "</li>"
+            "</td>"
+            f'<td><span class="score">{paper.relevance_score}</span></td>'
+            f'<td><span class="tag">{escape(paper.direction)}</span></td>'
+            f"<td>{escape(_why_read(paper))}</td>"
+            "</tr>"
         )
-    return f'<ol class="top-list">{"".join(items)}</ol>'
+    return (
+        '<div class="table-scroll"><table class="top-table"><thead><tr>'
+        "<th>排名</th><th>论文标题</th><th>评分</th><th>方向</th><th>为什么值得看</th>"
+        f'</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
+    )
 
 
 def _render_deep_nav(papers: list[Paper]) -> str:
@@ -162,16 +199,29 @@ def _render_deep_cards(papers: list[Paper]) -> str:
     cards = []
     for index, paper in enumerate(papers[:DEEP_READ_COUNT], start=1):
         authors = escape(", ".join(paper.authors))
+        insights = {key: escape(value) for key, value in _paper_insights(paper).items()}
+        keywords = "".join(
+            f'<span class="keyword-tag">{escape(keyword)}</span>' for keyword in paper.matched_keywords[:6]
+        )
         cards.append(
             f'<article class="paper-card" id="top{index}">'
-            f"<h3>TOP{index} {escape(paper.title)}</h3>"
-            f'<p class="meta">作者：{authors}</p>'
-            f'<p class="meta">发布时间：{escape(paper.published.isoformat())}</p>'
-            f'<p><span class="tag">{escape(paper.direction)}</span> '
-            f'<span class="score">相关性评分 {paper.relevance_score}</span></p>'
-            f'<p class="summary">{escape(paper.summary)}</p>'
-            f'<a href="{escape(_paper_url(paper), quote=True)}" target="_blank" rel="noopener noreferrer">'
-            "查看 arXiv 原文</a>"
+            '<div class="paper-card-head">'
+            f'<span class="top-badge">TOP {index}</span><div><h3>{escape(paper.title)}</h3>'
+            f'<p class="meta">作者：{authors}</p></div></div>'
+            '<div class="paper-card-toolbar">'
+            f'<span class="tag">{escape(paper.direction)}</span><span class="score">评分 {paper.relevance_score}</span>'
+            f"{keywords}"
+            f'<a class="paper-link" href="{escape(_paper_url(paper), quote=True)}" target="_blank" rel="noopener noreferrer">'
+            "查看 arXiv &#8599;</a></div>"
+            '<div class="paper-detail-grid"><div>'
+            f'<div class="insight"><h4>一句话总结</h4><p>{insights["summary"]}</p></div>'
+            f'<div class="insight"><h4>核心方法</h4><p>{insights["method"]}</p></div>'
+            f'<div class="insight"><h4>主要亮点</h4><p>{insights["highlight"]}</p></div>'
+            '</div><div class="detail-side">'
+            f'<div class="insight"><h4>可能局限</h4><p>{insights["limitation"]}</p></div>'
+            f'<div class="insight"><h4>适合谁看</h4><p>{insights["audience"]}</p></div>'
+            f'<div class="insight"><h4>阅读建议</h4><p>{insights["advice"]}</p></div>'
+            "</div></div>"
             "</article>"
         )
     return "".join(cards)
@@ -179,8 +229,9 @@ def _render_deep_cards(papers: list[Paper]) -> str:
 
 def _render_terms() -> str:
     return "".join(
-        f"<article><h3>{escape(term)}</h3><p>{escape(description)}</p></article>"
-        for term, description in _terms()
+        f'<article><span class="term-icon">{escape(icon)}</span><h3>{escape(term)}</h3>'
+        f"<p>{escape(description)}</p></article>"
+        for icon, term, description in _terms()
     )
 
 
@@ -190,19 +241,37 @@ def _render_raw_papers(papers: list[Paper]) -> str:
     items = []
     for paper in papers:
         items.append(
-            "<li>"
+            '<article class="raw-paper"><div>'
             f'<a href="{escape(_paper_url(paper), quote=True)}" target="_blank" rel="noopener noreferrer">'
             f"{escape(paper.title)}</a>"
             f"<code>{escape(paper.arxiv_id)}</code>"
-            "</li>"
+            f'<span class="tag">{escape(paper.direction)}</span></div>'
+            f"<details><summary>展开摘要</summary><p>{escape(paper.summary)}</p></details></article>"
         )
-    return f'<ul class="raw-list">{"".join(items)}</ul>'
+    return f'<div class="raw-list">{"".join(items)}</div>'
+
+
+def _render_overview_modules(papers: list[Paper]) -> str:
+    if not papers:
+        return "<p>今天暂未检索到符合筛选条件的新论文。</p>"
+    hot = escape(_hot_direction(papers))
+    keywords = "、".join(escape(keyword) for keyword in _trend_keywords(papers, 4)) or "暂无"
+    top_title = escape(papers[0].title)
+    modules = [
+        ("blue", "&#9679;", "今日主线", f"{hot} 是今天最集中的方向，共筛选出 {len(papers)} 篇值得关注的论文。"),
+        ("green", "&#9679;", "今日值得关注", f"优先阅读《{top_title}》，它在今日列表中的相关性评分最高。"),
+        ("purple", "&#9679;", "今日方法趋势", f"高频线索包括 {keywords}，可重点观察统一音频建模与生成能力。"),
+        ("orange", "&#9679;", "今日避坑提醒", "本页总结由摘要和规则模板生成，关键结论仍需结合论文实验部分核验。"),
+    ]
+    return "".join(
+        f'<article class="overview-item {color}"><span>{icon}</span><div><h3>{heading}</h3><p>{body}</p></div></article>'
+        for color, icon, heading, body in modules
+    )
 
 
 def render_html(title: str, papers: list[Paper], target_date: date) -> str:
     safe_title = escape(title)
     safe_date = escape(target_date.isoformat())
-    safe_overview = escape(_overview(papers))
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -213,43 +282,50 @@ def render_html(title: str, papers: list[Paper], target_date: date) -> str:
 </head>
 <body>
   <header class="hero">
-    <div class="container">
-      <p class="subtitle">Daily Research Digest</p>
-      <h1>{safe_title}</h1>
-      <p class="date">{safe_date}</p>
+    <div class="container hero-inner">
+      <div>
+        <p class="subtitle">Daily Research Digest</p>
+        <h1>{safe_title}</h1>
+        <p class="hero-note">聚焦语音、音乐与音频智能的每日研究动态</p>
+      </div>
+      <div class="hero-meta">
+        <strong>{safe_date}</strong>
+        <span>每日更新 · 学术前沿 · 一图速览</span>
+      </div>
     </div>
   </header>
   <main class="container">
     <section class="stats">{_render_stats(papers)}</section>
-    <section class="section-card">
-      <h2>今日 3 分钟速览</h2>
-      <p>{safe_overview}</p>
+    <section class="section-card overview-section">
+      <div class="section-heading"><span>01</span><div><h2>今日 3 分钟速览</h2><p>快速把握今日研究信号</p></div></div>
+      <div class="overview-grid">{_render_overview_modules(papers)}</div>
     </section>
     <section class="section-card">
-      <h2>热门方向分布</h2>
+      <div class="section-heading"><span>02</span><div><h2>热门方向分布</h2><p>按论文方向统计今日关注度</p></div></div>
       {_render_distribution(papers)}
     </section>
     <section class="section-card">
-      <h2>今日必读 TOP 10</h2>
+      <div class="section-heading"><span>03</span><div><h2>今日必读 TOP 10</h2><p>优先浏览评分较高的研究</p></div></div>
       {_render_top_reads(papers)}
     </section>
-    <section class="section-card">
-      <h2>精读卡片导航</h2>
+    <section class="section-card compact-section">
+      <div class="section-heading"><span>04</span><div><h2>精读卡片导航</h2><p>点击编号快速定位</p></div></div>
       <nav class="deep-nav">{_render_deep_nav(papers)}</nav>
     </section>
-    <section>
-      <h2>论文精读卡片 TOP 5</h2>
+    <section class="deep-section">
+      <div class="section-heading"><span>05</span><div><h2>论文精读卡片 TOP 5</h2><p>基于摘要的规则化阅读指南</p></div></div>
       <div class="paper-list">{_render_deep_cards(papers)}</div>
     </section>
     <section class="section-card">
-      <h2>术语小白卡</h2>
+      <div class="section-heading"><span>06</span><div><h2>术语小白卡</h2><p>快速补齐今日阅读背景</p></div></div>
       <div class="term-grid">{_render_terms()}</div>
     </section>
     <section class="section-card">
-      <h2>原始论文列表</h2>
+      <div class="section-heading"><span>07</span><div><h2>原始论文列表</h2><p>点击标题访问 arXiv，展开查看摘要</p></div></div>
       {_render_raw_papers(papers)}
     </section>
   </main>
+  <footer>Paper_Deliver · Generated from arXiv API</footer>
 </body>
 </html>
 """
